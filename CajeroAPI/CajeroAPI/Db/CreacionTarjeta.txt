@@ -1,0 +1,43 @@
+﻿CREATE OR ALTER PROCEDURE [dbo].[sp_creartarjetaDebito]
+    @NumeroCuenta CHAR(20),
+    @IdCliente INT,
+    @PIN CHAR(4),
+    @CCV CHAR(3),
+    @FechaExpiracion DATE
+AS
+BEGIN
+
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+
+    DECLARE @IdTipoServicio SMALLINT;
+    DECLARE @NumeroTarjeta CHAR(20);
+
+    BEGIN TRY
+
+        BEGIN TRANSACTION;
+
+        IF NOT EXISTS ( SELECT 1 FROM Cuenta
+            WHERE NumeroCuenta = @NumeroCuenta
+              AND IdCliente = @IdCliente
+              AND Estado = 'A'
+        )
+        BEGIN
+            RAISERROR('La cuenta no existe o no está activa.', 16, 1)
+            RETURN
+        END
+
+      
+        SET @IdTipoServicio = 4; 
+        SET @NumeroTarjeta = RIGHT('0000000000000000' + CAST(ABS(CHECKSUM(NEWID())) AS VARCHAR), 16)
+
+        INSERT INTO Tarjeta (NumeroTarjeta,NumeroCuenta,IdCliente,IdTipoServicio,Estado, PIN, CCV,FechaEmision,FechaExpiracion)
+        VALUES (@NumeroTarjeta,@NumeroCuenta,@IdCliente,@IdTipoServicio,'A',@PIN,@CCV,GETDATE(),@FechaExpiracion);
+
+        COMMIT
+    END TRY
+    BEGIN CATCH
+            ROLLBACK
+        DECLARE @ErrorMessage NVARCHAR(4000)
+        PRINT 'Error al crear la tarjeta de débito.'
+    END CATCH
+END

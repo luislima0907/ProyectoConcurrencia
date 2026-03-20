@@ -1,0 +1,70 @@
+﻿CREATE OR ALTER PROCEDURE sp_CrearPersonaYCliente
+    @PrimerNombre VARCHAR(50),
+    @SegundoNombre VARCHAR(50) = NULL,
+    @TercerNombre VARCHAR(50) = NULL,
+    @PrimerApellido VARCHAR(50),
+    @SegundoApellido VARCHAR(50) = NULL,
+    @TercerApellido VARCHAR(50) = NULL,
+    @FechaNacimiento DATE,
+    @Genero CHAR(1),
+    @IdEstadoCivil SMALLINT,
+    @IdClienteNuevo INT OUTPUT
+    AS
+    BEGIN
+    SET NOCOUNT ON;
+        SET XACT_ABORT ON
+        DECLARE @IdPersonaNuevo INT
+        BEGIN TRY
+            SET TRANSACTION ISOLATION LEVEL REPEATABLE READ
+            BEGIN TRANSACTION
+            IF NOT EXISTS (SELECT 1 FROM EstadoCivil WHERE IdEstadoCivil = @IdEstadoCivil)
+                THROW 50020, 'Estado civil no válido.', 1;
+            SELECT @IdPersonaNuevo = ISNULL(MAX(IdPersona), 0) + 1 FROM Persona WITH (UPDLOCK, HOLDLOCK)
+            INSERT INTO Persona (
+                IdPersona, PrimerNombre, SegundoNombre, TercerNombre, 
+                PrimerApellido, SegundoApellido, TercerApellido, 
+                FechaNacimiento, Genero, IdEstadoCivil
+            )
+            VALUES (
+                @IdPersonaNuevo, @PrimerNombre, @SegundoNombre, @TercerNombre,
+                @PrimerApellido, @SegundoApellido, @TercerApellido,
+                @FechaNacimiento, @Genero, @IdEstadoCivil
+            );
+            SELECT @IdClienteNuevo = ISNULL(MAX(IdCliente), 0) + 1 FROM Cliente WITH (UPDLOCK, HOLDLOCK)
+            INSERT INTO Cliente (IdCliente, IdPersona)
+            VALUES (@IdClienteNuevo, @IdPersonaNuevo)
+            COMMIT
+            SELECT 'Persona y cliente creados con éxito' AS Resultado
+        END TRY
+        BEGIN CATCH
+            IF XACT_STATE() != 0
+                ROLLBACK;
+            THROW;
+        END CATCH
+    END
+    
+    CREATE OR ALTER PROCEDURE sp_CrearCliente
+        @IdPersona INT,
+        @IdClienteNuevo INT
+        AS
+        BEGIN
+        SET NOCOUNT ON;
+            SET XACT_ABORT ON
+            BEGIN TRY
+                SET TRANSACTION ISOLATION LEVEL REPEATABLE READ
+                BEGIN TRANSACTION
+                IF NOT EXISTS (SELECT 1 FROM Persona WHERE IdPersona = @IdPersona)
+                    THROW 50021, 'La persona no existe.', 1;
+                IF EXISTS (SELECT 1 FROM Cliente WHERE IdPersona = @IdPersona)
+                    THROW 50022, 'La persona ya es cliente.', 1;
+                SELECT @IdClienteNuevo = ISNULL(MAX(IdCliente), 0) + 1 FROM Cliente WITH (UPDLOCK, HOLDLOCK)
+                INSERT INTO Cliente (IdCliente, IdPersona) VALUES (@IdClienteNuevo, @IdPersona)
+                COMMIT
+                SELECT 'Cliente creado con éxito' AS Resultado
+            END TRY
+            BEGIN CATCH
+                IF XACT_STATE() != 0
+                    ROLLBACK;
+                THROW;
+            END CATCH
+        END

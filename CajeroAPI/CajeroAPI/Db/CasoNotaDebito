@@ -1,0 +1,167 @@
+﻿CREATE OR ALTER PROCEDURE [dbo].[sp_NotaDebito]
+    @NumeroCuenta CHAR(20),
+    @IdCliente INT,
+    @Monto DECIMAL(18,2),
+    @NumeroTarjeta CHAR(20)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON
+    SET TRANSACTION ISOLATION LEVEL SERIALIZABLE
+
+    DECLARE @IdMovimientoNuevo INT
+    DECLARE @SaldoActual DECIMAL(18,2)
+    DECLARE @FechaHora DATETIME = GETDATE()
+
+    BEGIN TRY
+        BEGIN TRANSACTION
+
+        SET @IdMovimientoNuevo = NEXT VALUE FOR SeqMovimiento
+
+        IF @Monto <= 0
+        BEGIN
+            INSERT INTO MovimientoCuenta (
+                IdMovimiento, IdTipoMovimiento,
+                NumeroCuenta, IdCliente, NumeroTarjeta,
+                IdPersona, Monto, FechaHora
+            )
+            VALUES (
+                @IdMovimientoNuevo, 4,
+                @NumeroCuenta, @IdCliente, @NumeroTarjeta,
+                NULL, ABS(@Monto), @FechaHora
+            )
+
+            INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
+            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'I')
+
+            PRINT 'Monto inválido.'
+            COMMIT
+            RETURN
+        END
+
+        SELECT @SaldoActual = Saldo
+        FROM Cuenta WITH (UPDLOCK, HOLDLOCK)
+        WHERE NumeroCuenta = @NumeroCuenta
+          AND IdCliente = @IdCliente
+
+        IF @SaldoActual IS NULL
+        BEGIN
+            INSERT INTO MovimientoCuenta (
+                IdMovimiento, IdTipoMovimiento,
+                NumeroCuenta, IdCliente, NumeroTarjeta,
+                IdPersona, Monto, FechaHora
+            )
+            VALUES (
+                @IdMovimientoNuevo, 4,
+                @NumeroCuenta, @IdCliente, @NumeroTarjeta,
+                NULL, ABS(@Monto), @FechaHora
+            )
+
+            INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
+            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X')
+
+            SELECT 'Cuenta no existe.'
+            COMMIT
+            RETURN
+        END
+
+        IF @SaldoActual < @Monto
+        BEGIN
+            INSERT INTO MovimientoCuenta (
+                IdMovimiento, IdTipoMovimiento,
+                NumeroCuenta, IdCliente, NumeroTarjeta,
+                IdPersona, Monto, FechaHora
+            )
+            VALUES (
+                @IdMovimientoNuevo, 4,
+                @NumeroCuenta, @IdCliente, @NumeroTarjeta,
+                NULL, ABS(@Monto), @FechaHora
+            )
+
+            INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
+            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'I')
+
+            SELECT 'Saldo insuficiente.'
+            COMMIT
+            RETURN
+        END
+
+        IF NOT EXISTS (
+            SELECT 1 FROM Tarjeta
+            WHERE NumeroTarjeta = @NumeroTarjeta
+              AND NumeroCuenta = @NumeroCuenta
+              AND Estado = 'A'
+        )
+        BEGIN
+            INSERT INTO MovimientoCuenta (
+                IdMovimiento, IdTipoMovimiento,
+                NumeroCuenta, IdCliente, NumeroTarjeta,
+                IdPersona, Monto, FechaHora
+            )
+            VALUES (
+                @IdMovimientoNuevo, 4,
+                @NumeroCuenta, @IdCliente, @NumeroTarjeta,
+                NULL, ABS(@Monto), @FechaHora
+            )
+
+            INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
+            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X')
+
+            SELECT 'Tarjeta inválida o inactiva.'
+            COMMIT
+            RETURN
+        END
+
+        INSERT INTO MovimientoCuenta (
+            IdMovimiento, IdTipoMovimiento,
+            NumeroCuenta, IdCliente, NumeroTarjeta,
+            IdPersona, Monto, FechaHora
+        )
+        VALUES (
+            @IdMovimientoNuevo, 4,
+            @NumeroCuenta, @IdCliente, @NumeroTarjeta,
+            NULL, @Monto, @FechaHora
+        )
+
+        UPDATE Cuenta
+        SET Saldo = Saldo - @Monto
+        WHERE NumeroCuenta = @NumeroCuenta
+          AND IdCliente = @IdCliente
+
+        INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
+        VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'E')
+
+        COMMIT
+
+        SELECT 
+            @IdMovimientoNuevo AS IdMovimiento,
+            'DÉBITO' AS TipoOperacion,
+            @SaldoActual AS SaldoAnterior,
+            (@SaldoActual - @Monto) AS SaldoNuevo,
+            @Monto AS Monto,
+            @FechaHora AS FechaHora
+
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0
+            ROLLBACK
+
+        SET @IdMovimientoNuevo = NEXT VALUE FOR SeqMovimiento
+
+        INSERT INTO MovimientoCuenta (
+            IdMovimiento, IdTipoMovimiento,
+            NumeroCuenta, IdCliente, NumeroTarjeta,
+            IdPersona, Monto, FechaHora
+        )
+        VALUES (
+            @IdMovimientoNuevo, 4,
+            @NumeroCuenta, @IdCliente, @NumeroTarjeta,
+            NULL, ABS(@Monto), @FechaHora
+        )
+
+        INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
+        VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X')
+
+        SELECT 'Error: ' + ERROR_MESSAGE()
+    END CATCH
+END

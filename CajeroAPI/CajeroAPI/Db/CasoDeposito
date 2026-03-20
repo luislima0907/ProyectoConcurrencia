@@ -1,0 +1,74 @@
+﻿CREATE OR ALTER PROCEDURE sp_Depositar
+    @NumeroCuenta CHAR(20),
+    @IdCliente INT,
+    @Monto DECIMAL(18,2),
+    @IdPersonaQueDeposita INT = NULL 
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    SET TRANSACTION ISOLATION LEVEL SERIALIZABLE
+
+    DECLARE @IdMovimientoNuevo INT
+
+    BEGIN TRY
+        BEGIN TRANSACTION
+
+        -- Validación de monto
+        IF @Monto <= 0
+            THROW 50004, 'El monto debe ser mayor a cero.', 1;
+
+        -- Generar ID seguro
+        SET @IdMovimientoNuevo = NEXT VALUE FOR SeqMovimiento;
+
+        -- Bloqueo de la cuenta (clave para concurrencia)
+        IF NOT EXISTS (
+            SELECT 1 
+            FROM Cuenta WITH (UPDLOCK, HOLDLOCK)
+            WHERE NumeroCuenta = @NumeroCuenta 
+              AND IdCliente = @IdCliente 
+              AND Estado = 'A'
+        )
+            THROW 50005, 'Cuenta no válida o inactiva.', 1;
+
+        -- Insertar movimiento
+        INSERT INTO MovimientoCuenta (
+            IdMovimiento, IdTipoMovimiento, NumeroCuenta, IdCliente, 
+            IdPersona, Monto, FechaHora
+        )
+        VALUES (
+            @IdMovimientoNuevo, 1, @NumeroCuenta, @IdCliente, 
+            @IdPersonaQueDeposita, @Monto, GETDATE()
+        );
+
+        -- Actualizar saldo
+        UPDATE Cuenta
+        SET Saldo = Saldo + @Monto
+        WHERE NumeroCuenta = @NumeroCuenta 
+          AND IdCliente = @IdCliente
+
+        -- Bitácora éxito
+        INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
+        VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'E')
+
+        COMMIT
+
+        SELECT 'Depósito realizado con éxito' AS Resultado
+
+    END TRY
+    BEGIN CATCH
+
+        IF XACT_STATE() <> 0
+            ROLLBACK;
+
+        -- Bitácora error (si ya había ID generado)
+        IF @IdMovimientoNuevo IS NOT NULL
+        BEGIN
+            INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
+            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X');
+        END;
+
+        THROW;
+    END CATCH
+END

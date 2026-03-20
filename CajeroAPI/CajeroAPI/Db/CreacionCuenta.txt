@@ -1,0 +1,50 @@
+﻿CREATE OR ALTER PROCEDURE sp_CrearCuenta
+    @IdCliente INT,
+    @IdTipoServicio SMALLINT, 
+    @SaldoInicial DECIMAL(18,2)
+AS
+BEGIN
+    SET NOCOUNT ON
+    SET XACT_ABORT ON
+
+    DECLARE @NumeroCuenta CHAR(20)
+    DECLARE @NuevoNumero BIGINT
+
+    BEGIN TRY
+        BEGIN TRANSACTION
+
+        IF NOT EXISTS (SELECT 1 FROM Cliente WHERE IdCliente = @IdCliente)
+            THROW 50001, 'El cliente no existe.', 1;
+
+        IF @IdTipoServicio NOT IN (1,2)
+            THROW 50002, 'Tipo de cuenta inválido.', 1;
+
+        IF @SaldoInicial < 0
+            THROW 50003, 'Saldo inicial inválido.', 1;
+
+        SELECT @NuevoNumero = ISNULL(MAX(CAST(NumeroCuenta AS BIGINT)), 0) + 1
+        FROM Cuenta WITH (UPDLOCK, HOLDLOCK);
+
+        SET @NumeroCuenta = RIGHT(REPLICATE('0', 10) + CAST(@NuevoNumero AS VARCHAR(20)), 10);
+
+        INSERT INTO Cuenta (
+            NumeroCuenta, IdCliente, IdTipoServicio, Estado, 
+            Saldo, FechaApertura, FechaCierre
+        )
+        VALUES (
+            @NumeroCuenta, @IdCliente, @IdTipoServicio, 'A', 
+            @SaldoInicial, GETDATE(), NULL
+        );
+
+        COMMIT
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() != 0
+            ROLLBACK
+
+        DECLARE @ErrorMessage NVARCHAR(4000)
+        PRINT 'Error al crear la cuenta bancaria.'
+        
+        SELECT @ErrorMessage = ERROR_MESSAGE()
+    END CATCH
+END
