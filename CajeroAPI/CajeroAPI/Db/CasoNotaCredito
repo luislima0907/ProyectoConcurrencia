@@ -1,23 +1,30 @@
-﻿CREATE OR ALTER PROCEDURE [dbo].[sp_NotaCredito]
+﻿USE [CajeroAutomatico]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_NotaCredito]    Script Date: 20/03/2026 19:53:40 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER   PROCEDURE [dbo].[sp_NotaCredito]
     @NumeroCuenta CHAR(20),
     @IdCliente INT,
     @Monto DECIMAL(18,2),
-    @NumeroTarjeta CHAR(20) = NULL,
+    @NumeroTarjeta CHAR(20),
     @IdPersona INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
-    SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+    SET TRANSACTION ISOLATION LEVEL SERIALIZABLE
 
-    DECLARE @IdMovimientoNuevo INT;
-    DECLARE @SaldoActual DECIMAL(18,2);
-    DECLARE @FechaHora DATETIME = GETDATE();
+    DECLARE @IdMovimientoNuevo INT
+    DECLARE @SaldoActual DECIMAL(18,2)
+    DECLARE @FechaHora DATETIME = GETDATE()
 
     BEGIN TRY
-        BEGIN TRANSACTION;
+        BEGIN TRANSACTION
 
-        SET @IdMovimientoNuevo = NEXT VALUE FOR SeqMovimiento;
+        SET @IdMovimientoNuevo = NEXT VALUE FOR SeqMovimiento
 
         IF @Monto <= 0
         BEGIN
@@ -30,21 +37,21 @@ BEGIN
                 @IdMovimientoNuevo, 3,
                 @NumeroCuenta, @IdCliente, @NumeroTarjeta, @IdPersona,
                 ABS(@Monto), @FechaHora
-            );
+            )
 
             INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
-            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'I');
+            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'I')
 
-            PRINT 'Monto inválido para nota de crédito.';
-            COMMIT;
-            RETURN;
+            SELECT 'Monto inválido para nota de crédito.' AS Resultado
+            COMMIT
+            RETURN
         END
 
         SELECT @SaldoActual = Saldo
         FROM Cuenta WITH (UPDLOCK, HOLDLOCK)
         WHERE NumeroCuenta = @NumeroCuenta
           AND IdCliente = @IdCliente
-          AND Estado = 'A';
+          AND Estado = 'A'
 
         IF @SaldoActual IS NULL
         BEGIN
@@ -57,14 +64,14 @@ BEGIN
                 @IdMovimientoNuevo, 3,
                 @NumeroCuenta, @IdCliente, @NumeroTarjeta, @IdPersona,
                 ABS(@Monto), @FechaHora
-            );
+            )
 
             INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
-            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X');
+            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X')
 
-            PRINT 'Cuenta no válida o inactiva.';
-            COMMIT;
-            RETURN;
+            SELECT 'Cuenta no válida o inactiva.' AS Resultado
+            COMMIT
+            RETURN
         END
 
         INSERT INTO MovimientoCuenta (
@@ -76,17 +83,17 @@ BEGIN
             @IdMovimientoNuevo, 3,
             @NumeroCuenta, @IdCliente, @NumeroTarjeta, @IdPersona,
             @Monto, @FechaHora
-        );
+        )
 
         UPDATE Cuenta
         SET Saldo = Saldo + @Monto
         WHERE NumeroCuenta = @NumeroCuenta
-          AND IdCliente = @IdCliente;
+          AND IdCliente = @IdCliente
 
         INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
-        VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'E');
+        VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'E')
 
-        COMMIT;
+        COMMIT
 
         SELECT 
             @IdMovimientoNuevo AS IdMovimiento,
@@ -94,14 +101,14 @@ BEGIN
             @SaldoActual AS SaldoAnterior,
             (@SaldoActual + @Monto) AS SaldoNuevo,
             @Monto AS Monto,
-            @FechaHora AS FechaHora;
+            @FechaHora AS FechaHora
 
     END TRY
     BEGIN CATCH
         IF XACT_STATE() <> 0
-            ROLLBACK;
+            ROLLBACK
 
-        SET @IdMovimientoNuevo = NEXT VALUE FOR SeqMovimiento;
+        SET @IdMovimientoNuevo = NEXT VALUE FOR SeqMovimiento
 
         INSERT INTO MovimientoCuenta (
             IdMovimiento, IdTipoMovimiento,
@@ -112,11 +119,11 @@ BEGIN
             @IdMovimientoNuevo, 3,
             @NumeroCuenta, @IdCliente, @NumeroTarjeta, @IdPersona,
             ABS(@Monto), @FechaHora
-        );
+        )
 
         INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
-        VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X');
+        VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X')
 
-        PRINT 'Error al procesar la nota de crédito: ' + ERROR_MESSAGE();
+        SELECT 'Error al procesar la nota de crédito: ' + ERROR_MESSAGE() AS Resultado
     END CATCH
-END;
+END

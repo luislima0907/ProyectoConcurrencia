@@ -1,4 +1,11 @@
-﻿CREATE OR ALTER PROCEDURE [dbo].[sp_creartarjetaDebito]
+﻿USE [CajeroAutomatico]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_creartarjetaDebito]    Script Date: 20/03/2026 19:50:10 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER   PROCEDURE [dbo].[sp_creartarjetaDebito]
     @NumeroCuenta CHAR(20),
     @IdCliente INT,
     @PIN CHAR(4),
@@ -7,14 +14,14 @@
 AS
 BEGIN
 
-SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ
 
-    DECLARE @IdTipoServicio SMALLINT;
-    DECLARE @NumeroTarjeta CHAR(20);
+    DECLARE @IdTipoServicio SMALLINT
+    DECLARE @NumeroTarjeta CHAR(20)
 
     BEGIN TRY
 
-        BEGIN TRANSACTION;
+        BEGIN TRANSACTION
 
         IF NOT EXISTS ( SELECT 1 FROM Cuenta
             WHERE NumeroCuenta = @NumeroCuenta
@@ -31,13 +38,14 @@ SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
         SET @NumeroTarjeta = RIGHT('0000000000000000' + CAST(ABS(CHECKSUM(NEWID())) AS VARCHAR), 16)
 
         INSERT INTO Tarjeta (NumeroTarjeta,NumeroCuenta,IdCliente,IdTipoServicio,Estado, PIN, CCV,FechaEmision,FechaExpiracion)
-        VALUES (@NumeroTarjeta,@NumeroCuenta,@IdCliente,@IdTipoServicio,'A',@PIN,@CCV,GETDATE(),@FechaExpiracion);
+        VALUES (@NumeroTarjeta,@NumeroCuenta,@IdCliente,@IdTipoServicio,'A',@PIN,@CCV,GETDATE(),@FechaExpiracion)
 
         COMMIT
     END TRY
     BEGIN CATCH
+        IF XACT_STATE() != 0
             ROLLBACK
-        DECLARE @ErrorMessage NVARCHAR(4000)
-        PRINT 'Error al crear la tarjeta de débito.'
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE()
+        PRINT 'Error al crear la tarjeta de débito.' + @ErrorMessage
     END CATCH
 END

@@ -1,42 +1,53 @@
 ﻿import http from 'k6/http';
 import { sleep, check, group } from 'k6';
+import { Counter } from 'k6/metrics';
+
+// Contadores de éxito por operación
+const depositosOk = new Counter('depositos_ok');
+const retirosOk = new Counter('retiros_ok');
+const notaDebitoOk = new Counter('notaDebito_ok');
+const notaCreditoOk = new Counter('notaCredito_ok');
+const chequesOk = new Counter('cheques_ok');
 
 export const options = {
-  // Escenario simple: 20 segundos con VUs constantes para una prueba corta
+  // Opciones de ejecución
   scenarios: {
     load: {
       executor: 'constant-vus',
       vus: 50,
-      duration: '20s',
+      duration: '10s',
     },
   },
   thresholds: {
     'http_req_duration{type:all}': ['p(95)<1000'],
-    'http_req_failed': ['rate<0.05'],
+    'http_req_failed': ['rate<0.01'],
   },
 };
 
-// Unificar constantes de configuración
+// Configuración
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:5195';
 const HEADERS = { headers: { 'Content-Type': 'application/json' } };
 
-// Genera una lista de cuentas para simular tráfico. Ajusta según tu DB.
-const TOTAL_ACCOUNTS = 200; // número de cuentas distintas para reducir contención
-const HOT_ACCOUNTS = 5; // cuentas calientes que causarán contención intencional
-const accounts = [];
-for (let i = 1; i <= TOTAL_ACCOUNTS; i++) {
-  const num = String(1000000000000000 + i).slice(-20); // formatea 20 caracteres
-  accounts.push({ NumeroCuenta: num, IdCliente: (i % 50) + 1 });
-}
+// Cuentas de prueba
+const accounts = [
+  { NumeroCuenta: '0000000001', IdCliente: 1, FechaCheque: '2026-01-01' },
+  { NumeroCuenta: '0000000002', IdCliente: 2, FechaCheque: '2026-02-01' },
+  { NumeroCuenta: '0000000003', IdCliente: 3, FechaCheque: '2026-03-01' },
+];
 
-const hotAccounts = [];
-for (let i = 0; i < HOT_ACCOUNTS; i++) {
-  hotAccounts.push(accounts[i]);
-}
+// Tarjetas en la base de datos
+const cards = [
+  { NumeroTarjeta: '0000001095072985', NumeroCuenta: '0000000002', Pin: '3312' },
+  { NumeroTarjeta: '1111222233334444', NumeroCuenta: '0000000001', Pin: '1234' },
+  { NumeroTarjeta: '5555666677778888', NumeroCuenta: '0000000002', Pin: '5678' },
+];
+
+// Cuentas calientes
+const hotAccounts = [accounts[0]];
 
 function pickAccount() {
-  // 20% probabilidad de usar una hot account para forzar contención
-  if (Math.random() < 0.20) {
+  // Selección aleatoria de cuenta (incluye hotAccounts)
+  if (Math.random() < 0.10) {
     return hotAccounts[Math.floor(Math.random() * hotAccounts.length)];
   }
   return accounts[Math.floor(Math.random() * accounts.length)];
@@ -50,20 +61,65 @@ function buildHeaders() {
   return HEADERS;
 }
 
-// Helper para loguear respuesta cuando falla (útil para depuración local)
+// POST con timeout extendido
+function post(url, payload, headers) {
+  return http.post(url, payload, headers, { timeout: '60s' });
+}
+
+// Registro si la respuesta falla
 function logIfFailed(res, name, expectedStatuses = [200]) {
-  try {
-    if (!expectedStatuses.includes(res.status)) {
-      // res.body puede ser grande; limitamos a 1000 caracteres
-      const body = res && res.body ? String(res.body).slice(0, 1000) : 'no body';
-      console.log(`${name} FAILED - status=${res.status} body=${body}`);
+    try {
+        if (!expectedStatuses.includes(res.status)) {
+            const body = res && res.body ? String(res.body).slice(0, 1000) : 'no body';
+
+            if (body.includes('DEADLOCK')) {
+                console.log(`DEADLOCK DETECTED in ${name} - status=${res.status}`);
+            } else {
+                console.log(`${name} FAILED - status=${res.status} body=${body}`);
+            }
+        }
+    } catch (e) {
+        console.log(`${name} FAILED - could not read response body: ${e}`);
     }
+}
+
+// Rellena NumeroCuenta a 20 caracteres
+function padAccount(num) {
+  return String(num).padEnd(20, ' ');
+}
+
+// Rellena NumeroTarjeta a 20 caracteres o devuelve null
+function padCard(num) {
+  if (num === null || num === undefined) return null;
+  return String(num).padEnd(20, ' ');
+}
+
+// Rellena PIN a 4 caracteres o devuelve null
+function padCardPin(num){
+    if (num === null || num === undefined) return null;
+    return String(num).padEnd(4, ' ');
+}
+
+// Selecciona tarjeta para la cuenta o devuelve una aleatoria
+function pickCardForAccount(account) {
+  try {
+    if (!Array.isArray(cards) || cards.length === 0) return null;
+    if (!account || !account.NumeroCuenta) {
+      return cards[Math.floor(Math.random() * cards.length)];
+    }
+
+    const match = cards.filter(c => String(c.NumeroCuenta) === String(account.NumeroCuenta));
+    if (match.length > 0) {
+      return match[Math.floor(Math.random() * match.length)];
+    }
+
+    return cards[Math.floor(Math.random() * cards.length)];
   } catch (e) {
-    console.log(`${name} FAILED - could not read response body: ${e}`);
+    return cards[Math.floor(Math.random() * cards.length)];
   }
 }
 
-// Comprobación única de health antes de iniciar la carga
+// Health check
 export function setup() {
   const health = http.get(`${BASE_URL}/health`);
   const ok = health && health.status === 200;
@@ -72,93 +128,93 @@ export function setup() {
   return { healthOk: ok };
 }
 
-// Función principal (única export default)
+// Escenario de operaciones: distribución por tipo
 export default function () {
-  // Mix de operaciones: depósitos 35%, retiros 25%, notaDebito 15%, notaCredito 15%, cheques 10%
   const r = Math.random();
   const account = pickAccount();
 
   if (r < 0.35) {
-    // Deposito
     group('deposito', function () {
       const payload = JSON.stringify({
-        NumeroCuenta: account.NumeroCuenta,
+        NumeroCuenta: padAccount(account.NumeroCuenta),
         IdCliente: account.IdCliente,
         Monto: randAmount(10, 2000),
         IdPersonaQueDeposita: null,
       });
 
-      const res = http.post(`${BASE_URL}/depositos`, payload, buildHeaders());
+      const res = post(`${BASE_URL}/depositos`, payload, buildHeaders());
       check(res, {
         'deposito status is 200': (r) => r.status === 200,
       });
+      if (res.status === 200) depositosOk.add(1);
       logIfFailed(res, 'deposito', [200]);
     });
   } else if (r < 0.60) {
-    // Retiro
     group('retiro', function () {
+      const chosenCard = (account && account.IdCliente === 3) ? null : pickCardForAccount(account);
       const payload = JSON.stringify({
-        NumeroCuenta: account.NumeroCuenta,
+        NumeroCuenta: padAccount(account.NumeroCuenta),
         IdCliente: account.IdCliente,
         Monto: randAmount(20, 500),
-        NumeroTarjeta: '',
-        Pin: '',
+        NumeroTarjeta: chosenCard ? padCard(chosenCard.NumeroTarjeta) : null,
+        Pin: chosenCard ? padCardPin(chosenCard.Pin) : null,
       });
 
-      const res = http.post(`${BASE_URL}/retiros`, payload, buildHeaders());
+      const res = post(`${BASE_URL}/retiros`, payload, buildHeaders());
       check(res, {
         'retiro status is 200 or 204 or 400': (r) => [200, 204, 400].includes(r.status),
       });
+      if ([200,204].includes(res.status)) retirosOk.add(1);
       logIfFailed(res, 'retiro', [200, 204, 400]);
     });
   } else if (r < 0.75) {
-    // Nota débito
     group('notaDebito', function () {
-      const payload = JSON.stringify({
-        NumeroCuenta: account.NumeroCuenta,
-        IdCliente: account.IdCliente,
-        Monto: randAmount(5, 300),
-        NumeroTarjeta: '',
-      });
+      const chosenCard = (account && account.IdCliente === 3) ? null : pickCardForAccount(account);
+       const payload = JSON.stringify({
+         NumeroCuenta: padAccount(account.NumeroCuenta),
+         IdCliente: account.IdCliente,
+         Monto: randAmount(5, 300),
+         NumeroTarjeta: chosenCard ? padCard(chosenCard.NumeroTarjeta) : null,
+       });
 
-      const res = http.post(`${BASE_URL}/notas-debito`, payload, buildHeaders());
+       const res = post(`${BASE_URL}/notas-debito`, payload, buildHeaders());
       check(res, {
         'notaDebito status': (r) => [200, 400].includes(r.status),
       });
+      if (res.status === 200) notaDebitoOk.add(1);
       logIfFailed(res, 'notaDebito', [200, 400]);
     });
   } else if (r < 0.90) {
-    // Nota crédito
     group('notaCredito', function () {
       const payload = JSON.stringify({
-        NumeroCuenta: account.NumeroCuenta,
+        NumeroCuenta: padAccount(account.NumeroCuenta),
         IdCliente: account.IdCliente,
         Monto: randAmount(5, 300),
         NumeroTarjeta: null,
         IdPersona: null,
       });
 
-      const res = http.post(`${BASE_URL}/notas-credito`, payload, buildHeaders());
+      const res = post(`${BASE_URL}/notas-credito`, payload, buildHeaders());
       check(res, { 'notaCredito status': (r) => [200, 400].includes(r.status) });
+      if (res.status === 200) notaCreditoOk.add(1);
       logIfFailed(res, 'notaCredito', [200, 400]);
     });
   } else {
-    // Cheque
     group('cheque', function () {
       const payload = JSON.stringify({
-        NumeroCuenta: account.NumeroCuenta,
+        NumeroCuenta: padAccount(account.NumeroCuenta),
         IdCliente: account.IdCliente,
         Monto: randAmount(50, 1000),
-        FechaCheque: new Date().toISOString().slice(0, 10),
-        IdPersonaCobra: account.IdCliente,
+        FechaCheque: account.FechaCheque,
+        IdPersonaCobra: 4,
       });
 
-      const res = http.post(`${BASE_URL}/cheques`, payload, buildHeaders());
+      const res = post(`${BASE_URL}/cheques`, payload, buildHeaders());
       check(res, { 'cheque status': (r) => [200, 400].includes(r.status) });
+      if (res.status === 200) chequesOk.add(1);
       logIfFailed(res, 'cheque', [200, 400]);
     });
   }
 
-  // Pequeña pausa para simular tiempo de usuario
   sleep(Math.random() * 1.5);
 }

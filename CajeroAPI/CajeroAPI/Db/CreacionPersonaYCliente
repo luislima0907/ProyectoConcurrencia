@@ -1,4 +1,50 @@
-﻿CREATE OR ALTER PROCEDURE sp_CrearPersonaYCliente
+﻿USE [CajeroAutomatico]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_CrearCliente]    Script Date: 20/03/2026 19:46:28 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+    -- Procedura para crear clientes usando transacciones y el nivel
+-- de aislamiento REPEATABLE READ para evitar lecturas no repetibles durante la creación de cuentas y tarjetas.
+-- Usando mi tabla de cliente.
+ALTER   PROCEDURE [dbo].[sp_CrearCliente]
+    @IdPersona INT
+    AS
+    BEGIN
+    SET NOCOUNT ON;
+        SET XACT_ABORT ON
+        DECLARE @IdClienteNuevo INT
+        BEGIN TRY
+            SET TRANSACTION ISOLATION LEVEL REPEATABLE READ
+            BEGIN TRANSACTION
+            IF NOT EXISTS (SELECT 1 FROM Persona WHERE IdPersona = @IdPersona)
+                THROW 50021, 'La persona no existe.', 1
+            IF EXISTS (SELECT 1 FROM Cliente WHERE IdPersona = @IdPersona)
+                THROW 50022, 'La persona ya es cliente.', 1
+            SELECT @IdClienteNuevo = ISNULL(MAX(IdCliente), 0) + 1 FROM Cliente WITH (UPDLOCK, HOLDLOCK)
+            INSERT INTO Cliente (IdCliente, IdPersona) VALUES (@IdClienteNuevo, @IdPersona)
+            COMMIT
+            SELECT 'Cliente creado con éxito' AS Resultado
+        END TRY
+        BEGIN CATCH
+            IF XACT_STATE() != 0
+                ROLLBACK;
+            THROW
+        END CATCH
+    END
+
+USE [CajeroAutomatico]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_CrearPersona]    Script Date: 20/03/2026 19:47:50 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+-- Procedura para crear personas y asociarlas a un cliente usando transacciones y el nivel
+-- de aislamiento REPEATABLE READ para evitar lecturas no repetibles durante la creación de cuentas y tarjetas.
+-- Usando mi tabla de persona, estadoCivil y cliente.
+ALTER   PROCEDURE [dbo].[sp_CrearPersona]
     @PrimerNombre VARCHAR(50),
     @SegundoNombre VARCHAR(50) = NULL,
     @TercerNombre VARCHAR(50) = NULL,
@@ -7,8 +53,7 @@
     @TercerApellido VARCHAR(50) = NULL,
     @FechaNacimiento DATE,
     @Genero CHAR(1),
-    @IdEstadoCivil SMALLINT,
-    @IdClienteNuevo INT OUTPUT
+    @IdEstadoCivil SMALLINT
     AS
     BEGIN
     SET NOCOUNT ON;
@@ -29,42 +74,13 @@
                 @IdPersonaNuevo, @PrimerNombre, @SegundoNombre, @TercerNombre,
                 @PrimerApellido, @SegundoApellido, @TercerApellido,
                 @FechaNacimiento, @Genero, @IdEstadoCivil
-            );
-            SELECT @IdClienteNuevo = ISNULL(MAX(IdCliente), 0) + 1 FROM Cliente WITH (UPDLOCK, HOLDLOCK)
-            INSERT INTO Cliente (IdCliente, IdPersona)
-            VALUES (@IdClienteNuevo, @IdPersonaNuevo)
+            )
             COMMIT
             SELECT 'Persona y cliente creados con éxito' AS Resultado
         END TRY
         BEGIN CATCH
             IF XACT_STATE() != 0
                 ROLLBACK;
-            THROW;
+            THROW
         END CATCH
     END
-    
-    CREATE OR ALTER PROCEDURE sp_CrearCliente
-        @IdPersona INT,
-        @IdClienteNuevo INT
-        AS
-        BEGIN
-        SET NOCOUNT ON;
-            SET XACT_ABORT ON
-            BEGIN TRY
-                SET TRANSACTION ISOLATION LEVEL REPEATABLE READ
-                BEGIN TRANSACTION
-                IF NOT EXISTS (SELECT 1 FROM Persona WHERE IdPersona = @IdPersona)
-                    THROW 50021, 'La persona no existe.', 1;
-                IF EXISTS (SELECT 1 FROM Cliente WHERE IdPersona = @IdPersona)
-                    THROW 50022, 'La persona ya es cliente.', 1;
-                SELECT @IdClienteNuevo = ISNULL(MAX(IdCliente), 0) + 1 FROM Cliente WITH (UPDLOCK, HOLDLOCK)
-                INSERT INTO Cliente (IdCliente, IdPersona) VALUES (@IdClienteNuevo, @IdPersona)
-                COMMIT
-                SELECT 'Cliente creado con éxito' AS Resultado
-            END TRY
-            BEGIN CATCH
-                IF XACT_STATE() != 0
-                    ROLLBACK;
-                THROW;
-            END CATCH
-        END

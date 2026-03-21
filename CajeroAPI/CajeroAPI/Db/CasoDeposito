@@ -1,4 +1,11 @@
-﻿CREATE OR ALTER PROCEDURE sp_Depositar
+﻿USE [CajeroAutomatico]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_Depositar]    Script Date: 20/03/2026 19:50:58 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER   PROCEDURE [dbo].[sp_Depositar]
     @NumeroCuenta CHAR(20),
     @IdCliente INT,
     @Monto DECIMAL(18,2),
@@ -15,12 +22,29 @@ BEGIN
     BEGIN TRY
         BEGIN TRANSACTION
 
+        -- Generar ID seguro
+        SET @IdMovimientoNuevo = NEXT VALUE FOR SeqMovimiento
+
         -- Validación de monto
         IF @Monto <= 0
-            THROW 50004, 'El monto debe ser mayor a cero.', 1;
-
-        -- Generar ID seguro
-        SET @IdMovimientoNuevo = NEXT VALUE FOR SeqMovimiento;
+        BEGIN
+            -- Insertar movimiento exitoso
+            INSERT INTO MovimientoCuenta (
+                IdMovimiento, IdTipoMovimiento, NumeroCuenta, IdCliente, 
+                IdPersona, Monto, FechaHora
+            )
+            VALUES (
+                @IdMovimientoNuevo, 1, @NumeroCuenta, @IdCliente, 
+                @IdPersonaQueDeposita, ABS(@Monto), GETDATE()
+            )
+            -- Bitácora error
+            INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
+            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'I')
+            SELECT 'Monto inválido, se registró el intento de depósito con monto corregido a positivo pero no se realizaron cambios en la cuenta.' AS Resultado
+            COMMIT
+            RETURN
+        END
+            --THROW 50004, 'El monto debe ser mayor a cero.', 1;
 
         -- Bloqueo de la cuenta (clave para concurrencia)
         IF NOT EXISTS (
@@ -30,9 +54,26 @@ BEGIN
               AND IdCliente = @IdCliente 
               AND Estado = 'A'
         )
-            THROW 50005, 'Cuenta no válida o inactiva.', 1;
+        BEGIN
+            -- Insertar movimiento exitoso
+            INSERT INTO MovimientoCuenta (
+                IdMovimiento, IdTipoMovimiento, NumeroCuenta, IdCliente, 
+                IdPersona, Monto, FechaHora
+            )
+            VALUES (
+                @IdMovimientoNuevo, 1, @NumeroCuenta, @IdCliente, 
+                @IdPersonaQueDeposita, ABS(@Monto), GETDATE()
+            )
+             -- Bitácora error
+            INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
+            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X')
+            SELECT 'Cuenta no válida o inactiva, se registró el intento de depósito pero no se realizaron cambios en la cuenta.' AS Resultado
+            COMMIT
+            RETURN
+        END
+            --THROW 50005, 'Cuenta no válida o inactiva.', 1;
 
-        -- Insertar movimiento
+        -- Insertar movimiento exitoso
         INSERT INTO MovimientoCuenta (
             IdMovimiento, IdTipoMovimiento, NumeroCuenta, IdCliente, 
             IdPersona, Monto, FechaHora
@@ -40,7 +81,7 @@ BEGIN
         VALUES (
             @IdMovimientoNuevo, 1, @NumeroCuenta, @IdCliente, 
             @IdPersonaQueDeposita, @Monto, GETDATE()
-        );
+        )
 
         -- Actualizar saldo
         UPDATE Cuenta
@@ -58,17 +99,26 @@ BEGIN
 
     END TRY
     BEGIN CATCH
-
         IF XACT_STATE() <> 0
-            ROLLBACK;
+            ROLLBACK
 
-        -- Bitácora error (si ya había ID generado)
+        -- Generar ID seguro
+        SET @IdMovimientoNuevo = NEXT VALUE FOR SeqMovimiento
+
         IF @IdMovimientoNuevo IS NOT NULL
         BEGIN
-            INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
-            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X');
-        END;
+            INSERT INTO MovimientoCuenta (
+                IdMovimiento, IdTipoMovimiento, NumeroCuenta, IdCliente, 
+                IdPersona, Monto, FechaHora
+            )
+            VALUES (
+                @IdMovimientoNuevo, 1, @NumeroCuenta, @IdCliente, 
+                @IdPersonaQueDeposita, ABS(@Monto), GETDATE()
+            )
 
-        THROW;
+            INSERT INTO BitacoraCuenta (IdBitacora,IdMovimiento, Estado)
+            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X')
+        END
+        SELECT 'Error: ' + ERROR_MESSAGE() AS Resultado
     END CATCH
 END

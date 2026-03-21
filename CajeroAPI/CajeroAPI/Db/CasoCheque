@@ -1,4 +1,11 @@
-﻿CREATE OR ALTER PROCEDURE sp_PagarCheque
+﻿USE [CajeroAutomatico]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_PagarCheque]    Script Date: 20/03/2026 20:31:50 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER   PROCEDURE [dbo].[sp_PagarCheque]
     @NumeroCuenta CHAR(20),
     @IdCliente INT,
     @Monto DECIMAL(18,2),
@@ -9,55 +16,55 @@ BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 
-    SET TRANSACTION ISOLATION LEVEL SERIALIZABLE; 
+    SET TRANSACTION ISOLATION LEVEL SERIALIZABLE
 
-    DECLARE @IdMovimientoNuevo INT;
-    DECLARE @SaldoActual DECIMAL(18,2);
-    DECLARE @SeisMesesAtras DATE = DATEADD(MONTH, -6, GETDATE());
+    DECLARE @IdMovimientoNuevo INT
+    DECLARE @SaldoActual DECIMAL(18,2)
+    DECLARE @SeisMesesAtras DATE = DATEADD(MONTH, -6, GETDATE())
 
     BEGIN TRY
-        BEGIN TRANSACTION;
+        BEGIN TRANSACTION
 
-        SET @IdMovimientoNuevo = NEXT VALUE FOR SeqMovimiento;
+        SET @IdMovimientoNuevo = NEXT VALUE FOR SeqMovimiento
 
         -- Validación: fecha expirada
         IF @FechaCheque < @SeisMesesAtras
         BEGIN
             INSERT INTO MovimientoCuenta (
-                IdMovimiento, IdTipoMovimiento, NumeroCuenta, IdCliente, 
+                IdMovimiento, IdTipoMovimiento, FechaDocumento, NumeroCuenta, IdCliente, 
                 IdPersona, Monto, FechaHora
             )
             VALUES (
-                @IdMovimientoNuevo, 2, @NumeroCuenta, @IdCliente, 
+                @IdMovimientoNuevo, 5, @FechaCheque, @NumeroCuenta, @IdCliente, 
                 @IdPersonaCobra, ABS(@Monto), GETDATE()
-            );
+            )
 
             INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
-            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X');
+            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X')
 
-            PRINT 'Cheque expirado (más de 6 meses).';
-            COMMIT;
-            RETURN;
+            PRINT 'Cheque expirado (más de 6 meses).'
+            COMMIT
+            RETURN
         END
 
         -- Validación: fecha futura
         IF @FechaCheque > GETDATE()
         BEGIN
             INSERT INTO MovimientoCuenta (
-                IdMovimiento, IdTipoMovimiento, NumeroCuenta, IdCliente, 
+                IdMovimiento, IdTipoMovimiento, FechaDocumento, NumeroCuenta, IdCliente, 
                 IdPersona, Monto, FechaHora
             )
             VALUES (
-                @IdMovimientoNuevo, 2, @NumeroCuenta, @IdCliente, 
+                @IdMovimientoNuevo, 5, @FechaCheque, @NumeroCuenta, @IdCliente, 
                 @IdPersonaCobra, ABS(@Monto), GETDATE()
-            );
+            )
 
             INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
-            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X');
+            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X')
 
-            PRINT 'Fecha de cheque inválida (futura).';
-            COMMIT;
-            RETURN;
+            SELECT 'Fecha de cheque inválida (futura).'
+            COMMIT
+            RETURN
         END
 
         -- Bloqueo y obtención de saldo
@@ -65,89 +72,89 @@ BEGIN
         FROM Cuenta WITH (UPDLOCK, HOLDLOCK)
         WHERE NumeroCuenta = @NumeroCuenta 
           AND IdCliente = @IdCliente 
-          AND Estado = 'A';
+          AND Estado = 'A'
 
         -- Validación: cuenta inválida
         IF @SaldoActual IS NULL
         BEGIN
             INSERT INTO MovimientoCuenta (
-                IdMovimiento, IdTipoMovimiento, NumeroCuenta, IdCliente, 
+                IdMovimiento, IdTipoMovimiento, FechaDocumento, NumeroCuenta, IdCliente, 
                 IdPersona, Monto, FechaHora
             )
             VALUES (
-                @IdMovimientoNuevo, 2, @NumeroCuenta, @IdCliente, 
+                @IdMovimientoNuevo, 5, @FechaCheque, @NumeroCuenta, @IdCliente, 
                 @IdPersonaCobra, ABS(@Monto), GETDATE()
-            );
+            )
 
             INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
-            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X');
+            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X')
 
-            PRINT 'Cuenta no válida o inactiva.';
-            COMMIT;
-            RETURN;
+            SELECT 'Cuenta no válida o inactiva.'
+            COMMIT
+            RETURN
         END
 
         -- Validación: fondos insuficientes
         IF @Monto > @SaldoActual
         BEGIN
             INSERT INTO MovimientoCuenta (
-                IdMovimiento, IdTipoMovimiento, NumeroCuenta, IdCliente, 
+                IdMovimiento, IdTipoMovimiento, FechaDocumento, NumeroCuenta, IdCliente, 
                 IdPersona, Monto, FechaHora
             )
             VALUES (
-                @IdMovimientoNuevo, 2, @NumeroCuenta, @IdCliente, 
+                @IdMovimientoNuevo, 5, @FechaCheque, @NumeroCuenta, @IdCliente, 
                 @IdPersonaCobra, ABS(@Monto), GETDATE()
-            );
+            )
 
             INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
-            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'I');
+            VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'I')
 
-            PRINT 'Fondos insuficientes.';
-            COMMIT;
-            RETURN;
+            SELECT 'Fondos insuficientes.'
+            COMMIT
+            RETURN
         END
 
         -- Movimiento válido
         INSERT INTO MovimientoCuenta (
-            IdMovimiento, IdTipoMovimiento, NumeroCuenta, IdCliente, 
-            IdPersona, Monto, FechaHora
-        )
-        VALUES (
-            @IdMovimientoNuevo, 2, @NumeroCuenta, @IdCliente, 
-            @IdPersonaCobra, @Monto, GETDATE()
-        );
+                IdMovimiento, IdTipoMovimiento, FechaDocumento, NumeroCuenta, IdCliente, 
+                IdPersona, Monto, FechaHora
+            )
+            VALUES (
+                @IdMovimientoNuevo, 5, @FechaCheque, @NumeroCuenta, @IdCliente, 
+                @IdPersonaCobra, ABS(@Monto), GETDATE()
+            )
 
         UPDATE Cuenta
         SET Saldo = Saldo - @Monto
         WHERE NumeroCuenta = @NumeroCuenta 
-          AND IdCliente = @IdCliente;
+          AND IdCliente = @IdCliente
 
         INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
-        VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'E');
+        VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'E')
 
-        COMMIT;
+        COMMIT
 
-        SELECT 'Cheque pagado con éxito' AS Resultado;
+        SELECT 'Cheque pagado con éxito' AS Resultado
 
     END TRY
     BEGIN CATCH
         IF XACT_STATE() <> 0
-            ROLLBACK;
+            ROLLBACK
 
-        SET @IdMovimientoNuevo = NEXT VALUE FOR SeqMovimiento;
+        SET @IdMovimientoNuevo = NEXT VALUE FOR SeqMovimiento
 
         INSERT INTO MovimientoCuenta (
-            IdMovimiento, IdTipoMovimiento, NumeroCuenta, IdCliente, 
-            IdPersona, Monto, FechaHora
-        )
-        VALUES (
-            @IdMovimientoNuevo, 2, @NumeroCuenta, @IdCliente, 
-            @IdPersonaCobra, ABS(@Monto), GETDATE()
-        );
+                IdMovimiento, IdTipoMovimiento, FechaDocumento, NumeroCuenta, IdCliente, 
+                IdPersona, Monto, FechaHora
+            )
+            VALUES (
+                @IdMovimientoNuevo, 5, @FechaCheque, @NumeroCuenta, @IdCliente, 
+                @IdPersonaCobra, ABS(@Monto), GETDATE()
+            )
 
         INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
-        VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X');
+        VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'X')
 
-        PRINT 'Error: ' + ERROR_MESSAGE();
+        SELECT 'Error: ' + ERROR_MESSAGE() AS Resultado
     END CATCH
-END;
+END

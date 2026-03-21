@@ -165,3 +165,4 @@ C:\Users\luisl\OneDrive\Desktop\ProyectoCajero\CajeroAPI\CajeroAPI\bin\Debug\net
 C:\Users\luisl\OneDrive\Desktop\ProyectoCajero\CajeroAPI\CajeroAPI\bin\Debug\net9.0\Swashbuckle.AspNetCore.Swagger.dll
 C:\Users\luisl\OneDrive\Desktop\ProyectoCajero\CajeroAPI\CajeroAPI\bin\Debug\net9.0\Swashbuckle.AspNetCore.SwaggerGen.dll
 C:\Users\luisl\OneDrive\Desktop\ProyectoCajero\CajeroAPI\CajeroAPI\bin\Debug\net9.0\Swashbuckle.AspNetCore.SwaggerUI.dll
+C:\Users\luisl\OneDrive\Desktop\ProyectoCajero\CajeroAPI\CajeroAPI\obj\Debug\net9.0\CajeroAPI.sourcelink.json

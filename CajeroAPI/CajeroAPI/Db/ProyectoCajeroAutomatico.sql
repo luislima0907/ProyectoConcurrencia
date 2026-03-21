@@ -272,7 +272,14 @@ CREATE TABLE MovimientoCuenta(
 /* =========================
    BITACORA
 ========================= */
+select * from Cuenta
+select * from BitacoraCuenta
+select * from MovimientoCuenta
+select * from Tarjeta
 
+select * from MovimientoCuenta where monto = 321.47
+select * from BitacoraCuenta where IdMovimiento = 20761
+go
 CREATE TABLE BitacoraCuenta(
     IdBitacora INT NOT NULL,
     IdMovimiento INT NOT NULL,

@@ -1,4 +1,11 @@
-﻿CREATE OR ALTER PROCEDURE sp_CrearCuenta
+﻿USE [CajeroAutomatico]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_CrearCuenta]    Script Date: 20/03/2026 19:48:30 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER   PROCEDURE [dbo].[sp_CrearCuenta]
     @IdCliente INT,
     @IdTipoServicio SMALLINT, 
     @SaldoInicial DECIMAL(18,2)
@@ -23,9 +30,9 @@ BEGIN
             THROW 50003, 'Saldo inicial inválido.', 1;
 
         SELECT @NuevoNumero = ISNULL(MAX(CAST(NumeroCuenta AS BIGINT)), 0) + 1
-        FROM Cuenta WITH (UPDLOCK, HOLDLOCK);
+        FROM Cuenta WITH (UPDLOCK, HOLDLOCK)
 
-        SET @NumeroCuenta = RIGHT(REPLICATE('0', 10) + CAST(@NuevoNumero AS VARCHAR(20)), 10);
+        SET @NumeroCuenta = RIGHT(REPLICATE('0', 10) + CAST(@NuevoNumero AS VARCHAR(20)), 10)
 
         INSERT INTO Cuenta (
             NumeroCuenta, IdCliente, IdTipoServicio, Estado, 
@@ -34,7 +41,7 @@ BEGIN
         VALUES (
             @NumeroCuenta, @IdCliente, @IdTipoServicio, 'A', 
             @SaldoInicial, GETDATE(), NULL
-        );
+        )
 
         COMMIT
     END TRY
@@ -48,3 +55,5 @@ BEGIN
         SELECT @ErrorMessage = ERROR_MESSAGE()
     END CATCH
 END
+
+

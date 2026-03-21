@@ -1,4 +1,11 @@
-﻿CREATE OR ALTER PROCEDURE [dbo].[sp_NotaDebito]
+﻿USE [CajeroAutomatico]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_NotaDebito]    Script Date: 20/03/2026 19:54:15 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER   PROCEDURE [dbo].[sp_NotaDebito]
     @NumeroCuenta CHAR(20),
     @IdCliente INT,
     @Monto DECIMAL(18,2),
@@ -34,7 +41,7 @@ BEGIN
             INSERT INTO BitacoraCuenta (IdBitacora, IdMovimiento, Estado)
             VALUES (@IdMovimientoNuevo, @IdMovimientoNuevo, 'I')
 
-            PRINT 'Monto inválido.'
+            SELECT 'Monto inválido.'
             COMMIT
             RETURN
         END
